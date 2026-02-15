@@ -7,23 +7,37 @@ import asyncio
 from discord.ext import commands
 from dotenv import load_dotenv
 
+
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-# Загружаем модель Whisper (base - оптимально по скорости/качеству)
+# Загружаем модель Whisper
 print("Загрузка Whisper...")
-stt_model = whisper.load_model("base")
+stt_model = whisper.load_model("small", device="cuda")
 
 # В PyCord используем discord.Bot или commands.Bot
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 
+chat_history = []
 
 async def ask_ollama(text):
-    """Связь с твоей локальной Ollama"""
-    response = ollama.chat(model='llama3', messages=[
-        {'role': 'user', 'content': text},
-    ])
-    return response['message']['content']
+    global chat_history
+
+    # Добавляем сообщение пользователя в историю
+    chat_history.append({'role': 'user', 'content': text})
+
+    # Храним только последние 10 сообщений, чтобы не перегружать память
+    if len(chat_history) > 10:
+        chat_history = chat_history[-10:]
+
+    response = ollama.chat(model='llama3', messages=chat_history)
+
+    answer = response['message']['content']
+
+    # Добавляем ответ бота в историю
+    chat_history.append({'role': 'assistant', 'content': answer})
+
+    return answer
 
 
 async def say_text(vc, text):
