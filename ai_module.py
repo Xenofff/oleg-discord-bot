@@ -23,7 +23,14 @@ async def get_llm_answer(text):
     if len(chat_history) > 11:
         chat_history = [chat_history[0]] + chat_history[-10:]
 
-    response = ollama.chat(model=OLLAMA_MODEL, messages=chat_history)
+    response = ollama.chat(
+        model=OLLAMA_MODEL,
+        messages=chat_history,
+        options={
+            'temperature': 0.8,  # Чем выше, тем меньше робот
+            'num_predict': 100  # Ограничение длины ответа
+        }
+    )
     answer = response['message']['content']
     chat_history.append({'role': 'assistant', 'content': answer})
     return answer
