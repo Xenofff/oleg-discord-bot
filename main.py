@@ -1,91 +1,110 @@
 import discord
-from discord.ext import commands
+import os
+import whisper
 import ollama
 import edge_tts
 import asyncio
-import os
+from discord.ext import commands
 from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-# Настройки моделей
-OLLAMA_MODEL = 'llama3'
-VOICE_NAME = "ru-RU-DmitryNeural"
+# Загружаем модель Whisper (base - оптимально по скорости/качеству)
+print("Загрузка Whisper...")
+stt_model = whisper.load_model("base")
 
-# Настройка интентов бота
-intents = discord.Intents.default()
-intents.message_content = True  # Чтобы бот видел текст сообщений
-bot = commands.Bot(command_prefix="!", intents=intents)
+# В PyCord используем discord.Bot или commands.Bot
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 
 
-async def generate_voice_file(text, filename="response.mp3"):
-    """Превращает текст в аудиофайл через Microsoft Edge TTS"""
-    communicate = edge_tts.Communicate(text, VOICE_NAME)
-    await communicate.save(filename)
-    return filename
+async def ask_ollama(text):
+    """Связь с твоей локальной Ollama"""
+    response = ollama.chat(model='llama3', messages=[
+        {'role': 'user', 'content': text},
+    ])
+    return response['message']['content']
+
+
+async def say_text(vc, text):
+    """Озвучка текста и проигрывание в Discord"""
+    file = "response.mp3"
+    communicate = edge_tts.Communicate(text, "ru-RU-DmitryNeural")
+    await communicate.save(file)
+
+    # Проигрываем
+    vc.play(discord.FFmpegPCMAudio(file))
+    while vc.is_playing():
+        await asyncio.sleep(0.1)
+
+    if os.path.exists(file):
+        os.remove(file)
+
+
+# Функция, которая вызывается, когда запись голоса остановлена
+async def finished_recording(sink, ctx):
+    await ctx.send("Запись завершена, обрабатываю...")
+
+    for user_id, audio in sink.audio_data.items():
+        # Сохраняем аудио пользователя
+        output_path = f"user_{user_id}.wav"
+        with open(output_path, "wb") as f:
+            f.write(audio.file.read())
+
+        # Распознаем текст (STT)
+        print("Распознаю речь...")
+        result = stt_model.transcribe(output_path, language="russian")
+        user_text = result['text'].lower()
+        print(f"Услышал: {user_text}")
+
+        # Если в речи есть слово "бот"
+        if "бот" in user_text:
+            clean_text = user_text.replace("бот", "").strip()
+            # Спрашиваем ИИ
+            ai_answer = await ask_ollama(clean_text)
+            # Отвечаем голосом
+            await say_text(ctx.voice_client, ai_answer)
+
+        # Удаляем временный файл записи
+        os.remove(output_path)
 
 
 @bot.event
 async def on_ready():
-    print(f'Бот {bot.user} запущен и готов к работе!')
+    print(f"Бот {bot.user} готов к общению!")
 
 
 @bot.command()
-async def ask(ctx, *, question: str):
-    """Команда !ask [ваш вопрос]"""
-
-    # Проверяем, в голосовом ли канале пользователь
-    if not ctx.author.voice:
-        await ctx.send("Сначала зайди в голосовой канал!")
-        return
-
-    voice_channel = ctx.author.voice.channel
-
-    try:
-        # Индикация того, что бот "думает"
-        async with ctx.typing():
-            # Запрос к Ollama
-            response = ollama.chat(model=OLLAMA_MODEL, messages=[
-                {'role': 'user', 'content': question},
-            ])
-            answer_text = response['message']['content']
-
-            # Генерация аудио
-            audio_file = await generate_voice_file(answer_text)
-
-        # Подключение к голосу и проигрывание
-        # Если бот уже в канале, используем существующее подключение
-        vc = ctx.voice_client
-        if not vc:
-            vc = await voice_channel.connect()
-
-        # Если бот уже что-то говорит, останавливаем
-        if vc.is_playing():
-            vc.stop()
-
-        vc.play(discord.FFmpegPCMAudio(audio_file),
-                after=lambda e: print(f'Озвучка завершена: {e}' if e else 'Озвучка завершена успешно'))
-
-        # Ждем, пока бот договорит, чтобы удалить файл (опционально)
-        while vc.is_playing():
-            await asyncio.sleep(1)
-
-        # Удаляем временный файл
-        if os.path.exists(audio_file):
-            os.remove(audio_file)
-
-    except Exception as e:
-        await ctx.send(f"Произошла ошибка: {e}")
-        print(f"Ошибка: {e}")
+async def join(ctx):
+    """Зайти в канал"""
+    if ctx.author.voice:
+        await ctx.author.voice.channel.connect()
+    else:
+        await ctx.send("Зайди в голосовой канал!")
 
 
 @bot.command()
-async def leave(ctx):
-    """Выгнать бота из канала"""
-    if ctx.voice_client:
-        await ctx.voice_client.disconnect()
-        await ctx.send("До связи!")
+async def start(ctx):
+    """Начать слушать"""
+    if not ctx.voice_client:
+        await ctx.invoke(join)
+
+    # Начинаем запись в формате WAV
+    ctx.voice_client.start_recording(
+        discord.sinks.WaveSink(),
+        finished_recording,
+        ctx
+    )
+    await ctx.send("Я слушаю! Как закончишь говорить — напиши !stop")
+
+
+@bot.command()
+async def stop(ctx):
+    """Закончить прослушивание и получить ответ"""
+    if ctx.voice_client and ctx.voice_client.recording:
+        ctx.voice_client.stop_recording()
+    else:
+        await ctx.send("Я и так не записываю.")
 
 
 bot.run(TOKEN)
