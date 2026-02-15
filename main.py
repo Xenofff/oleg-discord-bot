@@ -57,11 +57,21 @@ async def finished_recording(sink, ctx):
         user_text = result['text'].lower()
         print(f"Услышал: {user_text}")
 
-        # Если в речи есть слово "бот"
-        if "бот" in user_text:
-            clean_text = user_text.replace("бот", "").strip()
+        # Если в речи есть слово "олег"
+        trigger_word = "олег"
+        if trigger_word in user_text:
+            # Убираем имя из запроса, чтобы не путать нейронку
+            clean_text = user_text.replace(trigger_word, "").strip()
+
+            # Если после "Олег" ничего не сказали, можно добавить дефолтный ответ
+            if not clean_text:
+                clean_text = "Привет!"
+
+            print(f"Обращение к Олегу подтверждено. Запрос: {clean_text}")
+
             # Спрашиваем ИИ
             ai_answer = await ask_ollama(clean_text)
+
             # Отвечаем голосом
             await say_text(ctx.voice_client, ai_answer)
 
