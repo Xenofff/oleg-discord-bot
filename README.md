@@ -14,7 +14,7 @@
 
 1. **Клонируй репозиторий:**
    ```bash
-   git clone [https://github.com/твой_профиль/oleg-ai-bot.git](https://github.com/твой_профиль/oleg-ai-bot.git)
+   git clone https://github.com/Xenofff/oleg-discord-bot
 
 2. **Настрой окружение:**
 Установи зависимости
