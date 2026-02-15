@@ -43,7 +43,7 @@ async def listen_loop(ctx):
         await asyncio.sleep(0.5)
 
 
-@bot.command()
+@bot.command(name='start')
 async def activate(ctx):
     global is_active
     if not ctx.voice_client:
@@ -51,6 +51,19 @@ async def activate(ctx):
     is_active = True
     bot.loop.create_task(listen_loop(ctx))
     await ctx.send("Олег заступил на смену!")
+
+
+@bot.command(name='stop')
+async def stop_voice(ctx):
+    # Проверяем, находится ли бот в голосовом канале
+    if ctx.voice_client:
+        await ctx.send("Ой, всё, ухожу. Не больно-то и хотелось тут с вами сидеть.")
+
+        await ctx.voice_client.disconnect()
+        print("Олег покинул голосовой канал.")
+    else:
+        await ctx.send("Я и так не в войсе. У тебя что, шизофрения?")
+
 
 
 bot.run(TOKEN)
